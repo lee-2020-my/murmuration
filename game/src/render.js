@@ -2,7 +2,7 @@
 // scrolling hills and treeline, the oak that grows on the horizon, the flock itself,
 // hawks, gusts, fireflies and the HUD. All drawing is plain Canvas 2D, no images.
 
-import { ENERGY, FIELD, FONT, GUST, PALETTE, TRIP_METRES } from './config.js';
+import { ENERGY, FIELD, FIREFLY, FONT, GUST, PALETTE, TRIP_METRES } from './config.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -93,19 +93,24 @@ export function createRenderer(canvas) {
       ctx.globalAlpha = 1;
     }
 
-    for (const cloud of state.clouds) {
-      ctx.fillStyle = '#ffffff';
-      ctx.globalAlpha = 0.10 + 0.05 * Math.sin(cloud.scale * 5);
-      ctx.beginPath();
-      ctx.ellipse(cloud.x, cloud.y, 90 * cloud.scale, 20 * cloud.scale, 0, 0, Math.PI * 2);
-      ctx.ellipse(cloud.x + 52 * cloud.scale, cloud.y + 8, 60 * cloud.scale, 15 * cloud.scale, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+    // Two cloud layers: the far ones drift slow and faint, the near ones full size.
+    for (const layer of [0, 1]) {
+      for (const cloud of state.clouds) {
+        if (cloud.layer !== layer) continue;
+        ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = layer === 0 ? 0.05 : 0.10 + 0.05 * Math.sin(cloud.scale * 5);
+        ctx.beginPath();
+        ctx.ellipse(cloud.x, cloud.y, 90 * cloud.scale, 20 * cloud.scale, 0, 0, Math.PI * 2);
+        ctx.ellipse(cloud.x + 52 * cloud.scale, cloud.y + 8, 60 * cloud.scale, 15 * cloud.scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
+    ctx.globalAlpha = 1;
   }
 
   function drawHills(state) {
     const layers = [
+      { factor: 0.12, base: 572, amp: 34, colour: PALETTE.hillFarther },
       { factor: 0.25, base: 600, amp: 26, colour: PALETTE.hillFar },
       { factor: 0.55, base: 632, amp: 20, colour: PALETTE.hillNear },
     ];
@@ -167,13 +172,15 @@ export function createRenderer(canvas) {
     ctx.quadraticCurveTo(14, -90, 18, 10);
     ctx.closePath();
     ctx.fill();
-    // Branches.
+    // Branches: a wider crown than before, reaching both ways.
     const branches = [
       [-4, -160, -90, -230, -150, -260],
       [4, -165, 70, -240, 130, -270],
       [-2, -150, -40, -210, -70, -280],
       [6, -155, 50, -200, 90, -250],
       [0, -170, 0, -240, -12, -300],
+      [-6, -140, -120, -190, -180, -210],
+      [8, -145, 110, -185, 165, -205],
     ];
     ctx.lineWidth = 9;
     for (const [x1, y1, x2, y2, x3, y3] of branches) {
@@ -182,20 +189,55 @@ export function createRenderer(canvas) {
       ctx.quadraticCurveTo(x2, y2, x3, y3);
       ctx.stroke();
     }
+    // Moss hanging from the low branches, swaying almost still.
+    ctx.strokeStyle = '#2c2438';
+    ctx.lineWidth = 2;
+    for (const [x, y, len] of [[-120, -196, 26], [96, -192, 22], [-60, -218, 18], [140, -200, 24]]) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + 3, y + len * 0.6, x - 2, y + len);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = PALETTE.oak;
     // Canopy.
     const blobs = [
       [-120, -270, 62], [20, -290, 74], [120, -270, 58], [-40, -320, 66], [70, -320, 60], [0, -250, 70],
+      [-170, -240, 44], [170, -240, 42],
     ];
     for (const [x, y, r] of blobs) {
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
     }
+    // A warm rim on the sunset side of the crown, so the oak reads against the night.
+    ctx.strokeStyle = PALETTE.oakRim;
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 2.5;
+    for (const [x, y, r] of blobs) {
+      ctx.beginPath();
+      ctx.arc(x, y, r - 1, Math.PI * 0.75, Math.PI * 1.5);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = PALETTE.oak;
     // Nests tucked in the branches.
     ctx.fillStyle = '#2c1f16';
     for (const [x, y] of [[-58, -196], [52, -206], [4, -238]]) {
       ctx.beginPath();
       ctx.ellipse(x, y, 12, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Starlings already perched on the low branches, waiting for the flock.
+    ctx.fillStyle = PALETTE.bird;
+    for (const [x, y] of [[-118, -204], [94, -198], [-32, -222]]) {
+      ctx.beginPath();
+      ctx.ellipse(x, y, 6, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x - 5, y);
+      ctx.lineTo(x - 9, y - 2);
+      ctx.lineTo(x - 9, y + 2);
+      ctx.closePath();
       ctx.fill();
     }
     ctx.restore();
@@ -218,21 +260,30 @@ export function createRenderer(canvas) {
     ctx.lineTo(-11, 2.4);
     ctx.closePath();
     ctx.fill();
-    // Wings: one above, one below, their tips riding the flap.
+    // Wings: one above, one below, their tips riding the flap. The sweep is wide
+    // so the beat reads even at a glance.
     const lift = Math.sin(flap);
     ctx.beginPath();
     ctx.moveTo(-1, 0);
-    ctx.lineTo(-5, -3 - 7 * lift);
-    ctx.lineTo(2, -2 - 6 * lift);
+    ctx.lineTo(-6, -3 - 9 * lift);
+    ctx.lineTo(2, -2 - 8 * lift);
     ctx.closePath();
     ctx.fill();
     ctx.globalAlpha = 0.75;
     ctx.beginPath();
     ctx.moveTo(-1, 0);
-    ctx.lineTo(-5, 3 + 7 * lift);
-    ctx.lineTo(2, 2 + 6 * lift);
+    ctx.lineTo(-6, 3 + 9 * lift);
+    ctx.lineTo(2, 2 + 8 * lift);
     ctx.closePath();
     ctx.fill();
+    ctx.globalAlpha = 1;
+    // A faint sheen along the back, so the body is not one flat blob.
+    ctx.strokeStyle = PALETTE.birdRim;
+    ctx.globalAlpha = 0.35;
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.arc(0, -0.5, 6, Math.PI * 1.15, Math.PI * 1.85);
+    ctx.stroke();
     ctx.globalAlpha = 1;
     // A warm rim on the sunset side, so the birds read against the night sky.
     if (rimAlpha > 0) {
@@ -262,7 +313,8 @@ export function createRenderer(canvas) {
   function drawHawks(state) {
     for (const hawk of state.hawks) {
       if (hawk.x > FIELD.width) {
-        // Warning marker at the edge before it sweeps in.
+        // Warning marker at the edge before it sweeps in. A diver gets a
+        // downward chevron as well: it is coming from above.
         ctx.fillStyle = PALETTE.danger;
         ctx.font = `bold 26px ${FONT}`;
         ctx.textAlign = 'center';
@@ -273,28 +325,63 @@ export function createRenderer(canvas) {
         ctx.lineTo(FIELD.width - 26, hawk.y + 26);
         ctx.closePath();
         ctx.fill();
+        if (hawk.kind === 'dive') {
+          ctx.beginPath();
+          ctx.moveTo(FIELD.width - 38, hawk.y - 14);
+          ctx.lineTo(FIELD.width - 14, hawk.y - 14);
+          ctx.lineTo(FIELD.width - 26, hawk.y - 2);
+          ctx.closePath();
+          ctx.fill();
+        }
         continue;
       }
-      const heading = Math.atan2(0, -1);
+      const diving = hawk.kind === 'dive' && hawk.phase === 'swoop';
       ctx.save();
       ctx.translate(hawk.x, hawk.y);
-      ctx.rotate(heading * 0.12);
+      // A swooping diver tilts down and folds its wings back; a cruiser glides level.
+      ctx.rotate(diving ? 0.5 : 0.12);
+      if (diving) {
+        ctx.strokeStyle = PALETTE.hawk;
+        ctx.globalAlpha = 0.4;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(24, 2);
+        ctx.lineTo(52, -6);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
       ctx.fillStyle = PALETTE.hawk;
       ctx.beginPath();
       ctx.ellipse(0, 0, 17, 6, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(-2, 0);
-      ctx.lineTo(-16, -22);
-      ctx.lineTo(4, -4);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(-2, 0);
-      ctx.lineTo(-14, 20);
-      ctx.lineTo(4, 4);
-      ctx.closePath();
-      ctx.fill();
+      if (diving) {
+        // Wings swept back along the body.
+        ctx.beginPath();
+        ctx.moveTo(-2, 0);
+        ctx.lineTo(-20, -6);
+        ctx.lineTo(-4, -3);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-2, 0);
+        ctx.lineTo(-18, 7);
+        ctx.lineTo(-4, 3);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(-2, 0);
+        ctx.lineTo(-16, -22);
+        ctx.lineTo(4, -4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-2, 0);
+        ctx.lineTo(-14, 20);
+        ctx.lineTo(4, 4);
+        ctx.closePath();
+        ctx.fill();
+      }
       ctx.beginPath();
       ctx.moveTo(-15, 0);
       ctx.lineTo(-26, -5);
@@ -314,11 +401,13 @@ export function createRenderer(canvas) {
       ctx.strokeStyle = PALETTE.gust;
       ctx.globalAlpha = 0.35;
       ctx.lineWidth = 2;
+      // A gust that shoves sideways leans its streaks that way.
+      const slant = (gust.pushY || 0) * 0.35;
       for (let i = 0; i < 5; i += 1) {
         const y = gust.y - GUST.height / 2 + ((i + 0.5) * GUST.height) / 5;
         ctx.beginPath();
         ctx.moveTo(gust.x + 20, y);
-        ctx.lineTo(gust.x + gust.width - 20, y + 26);
+        ctx.lineTo(gust.x + gust.width - 20, y + 26 + slant);
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
@@ -328,12 +417,13 @@ export function createRenderer(canvas) {
   function drawFireflies(state) {
     for (const fly of state.fireflies) {
       const y = fly.y + Math.sin(state.time * 2.2 + fly.phase) * 12;
-      const glow = ctx.createRadialGradient(fly.x, y, 0, fly.x, y, 16);
+      const pulse = 0.75 + 0.25 * Math.sin(state.time * 3.1 + fly.phase * 2);
+      const glow = ctx.createRadialGradient(fly.x, y, 0, fly.x, y, 16 * pulse);
       glow.addColorStop(0, 'rgba(255, 224, 102, 0.85)');
       glow.addColorStop(1, 'rgba(255, 224, 102, 0)');
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(fly.x, y, 16, 0, Math.PI * 2);
+      ctx.arc(fly.x, y, 16 * pulse, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = PALETTE.firefly;
       ctx.beginPath();
@@ -395,6 +485,21 @@ export function createRenderer(canvas) {
     ctx.fillStyle = PALETTE.text;
     ctx.font = `bold 26px ${FONT}`;
     ctx.fillText(String(Math.floor(state.score)), 30, 60);
+
+    // The firefly combo: quick pickups in a row pay a multiplier.
+    if (state.combo >= 2) {
+      ctx.fillStyle = PALETTE.combo;
+      ctx.font = `bold 15px ${FONT}`;
+      ctx.fillText(`x${state.combo} COMBO`, 30, 90);
+      ctx.fillStyle = PALETTE.energyBack;
+      ctx.beginPath();
+      ctx.roundRect(30, 96, 120, 5, 2);
+      ctx.fill();
+      ctx.fillStyle = PALETTE.combo;
+      ctx.beginPath();
+      ctx.roundRect(30, 96, Math.max(4, 120 * (state.comboTimer / FIREFLY.comboWindowSeconds)), 5, 2);
+      ctx.fill();
+    }
 
     panel(ctx, FIELD.width / 2 - 84, 14, 168, 56);
     ctx.fillStyle = PALETTE.muted;
@@ -555,6 +660,24 @@ export function createRenderer(canvas) {
     ctx.textAlign = 'left';
   }
 
+  /** Streaks of air while boosting. Their places come from the scroll and the
+   *  clock alone, so the same moment always paints the same streaks. */
+  function drawSpeedLines(state) {
+    ctx.strokeStyle = PALETTE.streak;
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 14; i += 1) {
+      const y = 30 + ((i * 97 + 53) % 660);
+      const x = FIELD.width - ((state.scrollPx * 2.4 + i * 211) % 1500);
+      const length = 40 + ((i * 37) % 50);
+      ctx.globalAlpha = 0.10 + 0.08 * ((i * 7) % 3) / 2;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + length, y - 6);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function draw(state, screen, best) {
     fit();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -573,6 +696,8 @@ export function createRenderer(canvas) {
     drawGusts(state);
     drawHawks(state);
     drawFlock(state);
+    state.particles.draw(ctx);
+    if (state.boosting) drawSpeedLines(state);
     if (screen === SCREEN_PLAY || screen === SCREEN_PAUSED) drawHud(state);
     if (screen === SCREEN_TITLE) drawTitle(state, best);
     else if (screen === SCREEN_PAUSED) drawPaused();

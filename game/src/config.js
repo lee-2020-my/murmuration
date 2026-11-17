@@ -63,6 +63,17 @@ export const HAWK = {
   /** Birds inside this radius of a hawk are scattered. */
   scatterRadius: 110,
   maxScattered: 6,
+  /** Diving hawks only appear after this many seconds of flight. */
+  diveAfterSeconds: 50,
+  /** Chance a spawned hawk is a diver instead of a cruiser. */
+  diveChance: 0.35,
+  /** How long a diver hovers high, telegraphing its swoop, in seconds. */
+  diveHoverSeconds: 0.9,
+  /** The swoop itself, in pixels a second. */
+  diveSpeed: 520,
+  /** A hawk that slips past this close to the leader is a near miss. */
+  nearMissRadius: 180,
+  nearMissShake: 0.45,
 };
 
 export const GUST = {
@@ -73,6 +84,9 @@ export const GUST = {
   /** Seconds inside a gust before it tears one bird away. */
   tearSeconds: 0.9,
   pushX: -130,
+  /** Chance a gust also shoves the flock sideways; the push itself is up to this many pixels a second. */
+  sideChance: 0.5,
+  sidePushMax: 95,
 };
 
 export const FIREFLY = {
@@ -81,6 +95,16 @@ export const FIREFLY = {
   collectRadius: 30,
   points: 25,
   drift: 46,
+  /** Pickups inside this many seconds of each other build a combo. */
+  comboWindowSeconds: 3,
+  /** The score multiplier caps here (x5). */
+  comboMax: 5,
+};
+
+/** How much the hawk and gust intervals shorten as the roost nears (0..1 of the trip). */
+export const RAMP = {
+  hawk: 0.35,
+  gust: 0.3,
 };
 
 export const STRAY_BIRD = {
@@ -116,12 +140,17 @@ export const PALETTE = {
   skyBottomEnd: '#12162b',
   sun: '#ffd98a',
   moon: '#e8ecff',
+  hillFarther: '#6b5578',
   hillFar: '#5a4468',
   hillNear: '#3a2c4e',
   treeLine: '#241a33',
   oak: '#160f22',
+  oakRim: '#f2a35e',
   bird: '#191423',
   birdRim: '#f2a35e',
+  feather: '#2a2138',
+  combo: '#ffd166',
+  streak: '#ffffff',
   firefly: '#ffe066',
   hawk: '#4a3428',
   hawkEye: '#ff5a3c',

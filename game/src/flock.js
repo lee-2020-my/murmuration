@@ -31,15 +31,20 @@ export function createFlock(random, startBirds) {
   const birds = [];
   for (let index = 0; index < startBirds; index += 1) birds.push(makeBird(random, index, leader));
   let total = startBirds;
+  /** Where birds were scattered or lost since the last drain (for feather bursts). */
+  const scatteredFx = [];
+  const lostFx = [];
 
-  /** Where bird i wants to be, relative to the leader, at this moment. */
+  /** Where bird i wants to be, relative to the leader, at this moment. The slot
+   *  leads the leader's velocity a little, so the flock leans into turns instead
+   *  of trailing a step behind them. */
   function slotFor(bird, time) {
     const angle = bird.slotSeed + time * 0.32;
     const radius = 26 + (bird.slotSeed % 1) * 64 + 9 * Math.sin(time * 0.9 + bird.slotWobble);
     const spread = 0.8 + total * 0.012;
     return {
-      x: leader.x + Math.cos(angle) * radius * spread,
-      y: leader.y + Math.sin(angle) * radius * spread * 0.62,
+      x: leader.x + Math.cos(angle) * radius * spread + leader.vx * 0.12,
+      y: leader.y + Math.sin(angle) * radius * spread * 0.62 + leader.vy * 0.12,
     };
   }
 
@@ -55,6 +60,8 @@ export function createFlock(random, startBirds) {
   return {
     leader,
     birds,
+    scatteredFx,
+    lostFx,
 
     /** Birds still alive: flying, returning, or scattered but recoverable. */
     get total() {
@@ -116,6 +123,7 @@ export function createFlock(random, startBirds) {
         bird.anchorY = range(random, 80, 600);
         bird.vx = -140;
         bird.vy = range(random, -60, 60);
+        scatteredFx.push({ x: bird.x, y: bird.y });
         scattered += 1;
       }
       return scattered;
@@ -140,6 +148,7 @@ export function createFlock(random, startBirds) {
       nearest.anchorY = range(random, 80, 600);
       nearest.vx = -160;
       nearest.vy = range(random, -80, 80);
+      scatteredFx.push({ x: nearest.x, y: nearest.y });
       return 1;
     },
 
@@ -174,6 +183,7 @@ export function createFlock(random, startBirds) {
       for (let index = birds.length - 1; index >= 0; index -= 1) {
         const bird = birds[index];
         if (bird.state === 'stray' && bird.strayTimer > FLOCK.straySeconds) {
+          lostFx.push({ x: bird.x, y: bird.y });
           birds.splice(index, 1);
           total -= 1;
           lost += 1;

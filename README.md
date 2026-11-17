@@ -6,10 +6,12 @@
 
 Murmuration is an original 2D canvas game: steer a starling flock home across a
 dusk sky. Guide the leader with the mouse, boost with a held click or Shift, call
-scattered birds home with C, dodge the hawks, ride out the gusts, catch fireflies
-for boost and gather stray starlings — and reach the old oak before nightfall.
-Plain Canvas 2D and WebAudio synthesis throughout: no libraries, no audio files,
-no network requests.
+scattered birds home with C, dodge the hawks — cruisers and the divers that hover
+high, then drop on your line — ride out the gusts that shove you sideways,
+chain fireflies into a score combo and gather stray starlings — and reach the old
+oak before nightfall. The sky darkens and the hazards thicken as the roost
+nears. Plain Canvas 2D and WebAudio synthesis throughout: no libraries, no audio
+files, no network requests.
 
 ## Run it
 

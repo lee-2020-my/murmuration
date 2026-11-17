@@ -27,12 +27,16 @@ function autopilot(state) {
   const strays = state.flock.birds.filter((bird) => bird.state === 'stray').length;
   if (strays > 0 && state.callCooldown <= 0 && state.energy >= 10) call = true;
 
-  // A hawk closing on our height: climb or dive away from its line.
+  // A hawk closing on our height: climb or dive away from its line. A swooping
+  // diver is heading for a fixed height, so get clear of that line, not its nose.
   for (const hawk of state.hawks) {
     if (hawk.x > leader.x - 40 && hawk.x < leader.x + HAWK_LOOKAHEAD) {
-      const away = leader.y < hawk.y ? -1 : 1;
+      const swooping = hawk.kind === 'dive' && hawk.phase === 'swoop';
+      const dangerY = swooping ? hawk.targetY : hawk.y;
+      const away = leader.y < dangerY ? -1 : 1;
+      const distance = swooping ? 260 : 200;
       return {
-        target: { x: leader.x + 60, y: Math.min(600, Math.max(80, leader.y + away * 200)) },
+        target: { x: leader.x + 60, y: Math.min(600, Math.max(80, leader.y + away * distance)) },
         boost: false,
         call,
       };

@@ -9,7 +9,7 @@
 // screenshot.
 import { BEST_KEY, STEP } from './config.js';
 import { createRandom } from './random.js';
-import { createWorld, EVENT_GATHER, EVENT_GUST, EVENT_HAWK, EVENT_OVER, EVENT_PICKUP, EVENT_SCATTER, EVENT_WIN } from './world.js';
+import { createWorld, EVENT_DIVE, EVENT_GATHER, EVENT_GUST, EVENT_HAWK, EVENT_OVER, EVENT_PICKUP, EVENT_SCATTER, EVENT_WIN } from './world.js';
 import { ACTION_CALL, ACTION_CONFIRM, ACTION_MUTE, ACTION_PAUSE, createInput } from './input.js';
 import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 import { stageShot } from './shots.js';
@@ -21,7 +21,8 @@ const MAX_FRAME = 0.25;
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
 const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
+// No seed given: the clock picks one, so every visit flies a different sky.
+const seed = Number.isInteger(seedParam) ? seedParam : Date.now() % 4294967296;
 
 const canvas = document.getElementById('game');
 const status = document.getElementById('status');
@@ -63,6 +64,7 @@ function runGame() {
   let best = readBest();
   let accumulator = 0;
   let last = performance.now();
+  let wasBoosting = false;
   // The steering target: the pointer sets it outright; the arrow keys nudge it.
   const target = { x: 420, y: 360 };
 
@@ -141,8 +143,11 @@ function runGame() {
     if (events & EVENT_PICKUP) audio.chirp();
     if (events & EVENT_GATHER) audio.gather();
     if (events & EVENT_HAWK) audio.screech();
+    if (events & EVENT_DIVE) audio.diveScreech();
     if (events & EVENT_GUST) audio.whoosh();
     if (events & EVENT_SCATTER) audio.thud();
+    if (world.state.boosting && !wasBoosting) audio.boostWhoosh();
+    wasBoosting = world.state.boosting;
     audio.setWind(world.state.boosting ? 1 : 0.3);
     if (events & EVENT_OVER) endGame();
   }

@@ -14,6 +14,7 @@ import {
   HAWK,
   LEADER,
   METRES_PER_PIXEL,
+  RAMP,
   SCORE,
   SPEED,
   STRAY_BIRD,
@@ -21,6 +22,7 @@ import {
   UPDRAFT,
 } from './config.js';
 import { createFlock } from './flock.js';
+import { createParticles } from './particles.js';
 import { range } from './random.js';
 
 export const EVENT_PICKUP = 1;
@@ -30,6 +32,7 @@ export const EVENT_SCATTER = 8;
 export const EVENT_WIN = 16;
 export const EVENT_OVER = 32;
 export const EVENT_GUST = 64;
+export const EVENT_DIVE = 128;
 
 const HAWK_DODGE_POINTS = 10;
 
@@ -54,6 +57,9 @@ export function createWorld(random) {
     state.birdsGathered = 0;
     state.hawksDodged = 0;
     state.birdsLost = 0;
+    state.combo = 0;
+    state.comboTimer = 0;
+    state.particles = createParticles(random);
     state.hawkTimer = HAWK.firstAtSeconds;
     state.gustTimer = GUST.firstAtSeconds;
     state.fireflyTimer = 0.8;
@@ -67,11 +73,15 @@ export function createWorld(random) {
     state.flock = createFlock(random, FLOCK.startBirds);
     state.clouds = [];
     for (let i = 0; i < 9; i += 1) {
+      // The first four drift far away: slower, smaller, dimmer.
+      const far = i < 4;
       state.clouds.push({
         x: range(random, 0, FIELD.width),
         y: range(random, 40, 420),
-        scale: range(random, 0.6, 1.6),
+        scale: range(random, 0.6, 1.6) * (far ? 0.65 : 1),
         speed: range(random, 8, 22),
+        drift: far ? 0.45 : 1,
+        layer: far ? 0 : 1,
       });
     }
     state.stars = [];
@@ -87,12 +97,31 @@ export function createWorld(random) {
 
   function spawnHawk() {
     const leader = state.flock.leader;
+    const dive = state.time > HAWK.diveAfterSeconds && random() < HAWK.diveChance;
+    if (dive) {
+      // A diver hovers high at the edge, telegraphing its swoop, then drops.
+      state.hawks.push({
+        kind: 'dive',
+        phase: 'hover',
+        hoverTimer: HAWK.diveHoverSeconds,
+        x: FIELD.width + 140,
+        y: range(random, 60, 140),
+        targetY: leader.y,
+        warned: false,
+        screeched: false,
+        spent: false,
+        nearMissed: false,
+      });
+      return;
+    }
     state.hawks.push({
+      kind: 'cruise',
       x: FIELD.width + 220,
       y: Math.min(600, Math.max(80, leader.y + range(random, -130, 130))),
       warned: false,
       screeched: false,
       spent: false,
+      nearMissed: false,
     });
   }
 
@@ -102,6 +131,8 @@ export function createWorld(random) {
       y: range(random, 120, 520),
       width: range(random, 190, 260),
       tearTimer: 0,
+      // Half the gusts also shove the flock sideways, up or down.
+      pushY: random() < GUST.sideChance ? range(random, -GUST.sidePushMax, GUST.sidePushMax) : 0,
     });
   }
 
@@ -141,7 +172,7 @@ export function createWorld(random) {
     if (demo) {
       state.flock.update(dt, steer, state.time);
       for (const cloud of state.clouds) {
-        cloud.x -= cloud.speed * dt;
+        cloud.x -= cloud.speed * cloud.drift * dt;
         if (cloud.x < -220) {
           cloud.x = FIELD.width + 200;
           cloud.y = range(random, 40, 420);
@@ -161,6 +192,13 @@ export function createWorld(random) {
     state.scrollPx += speed * dt;
     state.score += metres / SCORE.metresPerPoint;
 
+    // The firefly combo fades if nothing is caught in time.
+    if (state.comboTimer > 0) {
+      state.comboTimer -= dt;
+      if (state.comboTimer <= 0) state.combo = 0;
+    }
+    state.particles.update(dt, speed);
+
     if (callRequested && state.callCooldown <= 0 && state.energy >= ENERGY.callCost) {
       const called = state.flock.callBack();
       if (called > 0) {
@@ -169,17 +207,19 @@ export function createWorld(random) {
       }
     }
 
-    // Spawning.
+    // Spawning. As the roost nears the sky gets busier: hawks and gusts come faster.
+    const progress = 1 - state.distance / TRIP_METRES;
     state.hawkTimer -= dt;
     if (state.hawkTimer <= 0) {
       spawnHawk();
       const late = state.time > HAWK.lateAtSeconds;
-      state.hawkTimer = (late ? HAWK.intervalLateSeconds : HAWK.intervalSeconds) * range(random, 0.85, 1.15);
+      const base = late ? HAWK.intervalLateSeconds : HAWK.intervalSeconds;
+      state.hawkTimer = base * (1 - RAMP.hawk * progress) * range(random, 0.85, 1.15);
     }
     state.gustTimer -= dt;
     if (state.gustTimer <= 0) {
       spawnGust();
-      state.gustTimer = GUST.intervalSeconds * range(random, 0.85, 1.2);
+      state.gustTimer = GUST.intervalSeconds * (1 - RAMP.gust * progress) * range(random, 0.85, 1.2);
     }
     state.fireflyTimer -= dt;
     if (state.fireflyTimer <= 0) {
@@ -197,16 +237,48 @@ export function createWorld(random) {
       state.updraftTimer = UPDRAFT.intervalSeconds * range(random, 0.85, 1.2);
     }
 
-    // Hawks sweep in from the right, homing gently on the flock's height.
+    // Hawks sweep in from the right, homing gently on the flock's height. A diver
+    // hovers high first, then drops on the leader's line.
     const leader = state.flock.leader;
     for (let i = state.hawks.length - 1; i >= 0; i -= 1) {
       const hawk = state.hawks[i];
-      hawk.x -= HAWK.speed * dt;
-      const dy = leader.y - hawk.y;
-      hawk.y += Math.max(-HAWK.homing * dt, Math.min(HAWK.homing * dt, dy));
+      const prevX = hawk.x;
+      if (hawk.kind === 'dive') {
+        if (hawk.phase === 'hover') {
+          hawk.x -= 60 * dt;
+          hawk.y += Math.sin(state.time * 3) * 14 * dt;
+          hawk.hoverTimer -= dt;
+          if (hawk.hoverTimer <= 0) {
+            hawk.phase = 'swoop';
+            hawk.targetY = leader.y;
+            events |= EVENT_DIVE;
+          }
+        } else if (hawk.phase === 'swoop') {
+          hawk.x -= HAWK.diveSpeed * dt;
+          const dy = hawk.targetY - hawk.y;
+          const stepY = Math.max(-HAWK.diveSpeed * 0.8 * dt, Math.min(HAWK.diveSpeed * 0.8 * dt, dy));
+          hawk.y += stepY;
+          if (hawk.x < leader.x + 40 || Math.abs(dy) < 30) hawk.phase = 'cruise';
+        } else {
+          hawk.x -= HAWK.speed * dt;
+          const dy = leader.y - hawk.y;
+          hawk.y += Math.max(-HAWK.homing * dt, Math.min(HAWK.homing * dt, dy));
+        }
+      } else {
+        hawk.x -= HAWK.speed * dt;
+        const dy = leader.y - hawk.y;
+        hawk.y += Math.max(-HAWK.homing * dt, Math.min(HAWK.homing * dt, dy));
+      }
       if (!hawk.screeched && hawk.x < FIELD.width) {
         hawk.screeched = true;
         events |= EVENT_HAWK;
+      }
+      // A hawk that slips past close without striking is a near miss: a jolt, no loss.
+      if (!hawk.nearMissed && prevX > leader.x && hawk.x <= leader.x) {
+        hawk.nearMissed = true;
+        if (!hawk.spent && Math.abs(hawk.y - leader.y) < HAWK.nearMissRadius) {
+          state.shake = Math.max(state.shake, HAWK.nearMissShake);
+        }
       }
       if (!hawk.spent) {
         const scattered = state.flock.scatterAt(hawk.x, hawk.y, HAWK.scatterRadius, HAWK.maxScattered);
@@ -235,6 +307,9 @@ export function createWorld(random) {
         leader.y < gust.y + GUST.height / 2;
       if (inside) {
         leader.x = Math.max(LEADER.minX, leader.x + GUST.pushX * dt);
+        if (gust.pushY !== 0) {
+          leader.y = Math.min(LEADER.maxY, Math.max(LEADER.minY, leader.y + gust.pushY * dt));
+        }
         gust.tearTimer += dt;
         if (gust.tearTimer >= GUST.tearSeconds) {
           gust.tearTimer = 0;
@@ -254,9 +329,13 @@ export function createWorld(random) {
       const y = fly.y + Math.sin(state.time * 2.2 + fly.phase) * 12;
       if (Math.hypot(leader.x - fly.x, leader.y - y) < FIREFLY.collectRadius) {
         state.fireflies.splice(i, 1);
-        state.score += FIREFLY.points;
+        // Pickups close together build a combo: each one in the window pays more.
+        state.combo = state.comboTimer > 0 ? Math.min(state.combo + 1, FIREFLY.comboMax) : 1;
+        state.comboTimer = FIREFLY.comboWindowSeconds;
+        state.score += FIREFLY.points * state.combo;
         state.energy = Math.min(ENERGY.max, state.energy + ENERGY.firefly);
         state.firefliesCaught += 1;
+        state.particles.spark(fly.x, y);
         events |= EVENT_PICKUP;
         continue;
       }
@@ -272,6 +351,7 @@ export function createWorld(random) {
         state.flock.addBird(random);
         state.score += STRAY_BIRD.points;
         state.birdsGathered += 1;
+        state.particles.spark(stray.x, stray.y);
         events |= EVENT_GATHER;
         continue;
       }
@@ -294,19 +374,26 @@ export function createWorld(random) {
     }
 
     for (const cloud of state.clouds) {
-      cloud.x -= (cloud.speed + speed * 0.12) * dt;
+      cloud.x -= (cloud.speed * cloud.drift + speed * 0.12) * dt;
       if (cloud.x < -220) {
         cloud.x = FIELD.width + 200;
         cloud.y = range(random, 40, 420);
       }
     }
 
+    // Feathers burst where birds were scattered or lost for good.
+    for (const at of state.flock.scatteredFx) state.particles.feathers(at.x, at.y, 5);
+    state.flock.scatteredFx.length = 0;
+
     state.flock.update(dt, steer, state.time);
     const lost = state.flock.removeLost();
     if (lost > 0) {
       state.birdsLost += lost;
+      state.flash = Math.max(state.flash, 0.5);
+      for (const at of state.flock.lostFx) state.particles.feathers(at.x, at.y, 8);
       events |= EVENT_SCATTER;
     }
+    state.flock.lostFx.length = 0;
 
     if (state.distance <= 0) {
       state.over = true;

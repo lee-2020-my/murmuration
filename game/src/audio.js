@@ -1,11 +1,17 @@
 // Every sound in Murmuration is synthesised with WebAudio: no audio files, no
 // network, nothing to load. The audio context is created only after the player's
 // first gesture (the browser's autoplay rule), so the screenshot scenes, which
-// never take a gesture, stay silent and never create one.
+// never take a gesture, stay silent and never create one. Even the noise is
+// seeded, so there is no unseeded randomness anywhere in the game.
+
+import { createRandom } from './random.js';
 
 /** A slow pentatonic line the music loop walks, in hertz (C major pentatonic, two octaves). */
 const MELODY = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99, 880.0];
 const MELODY_STEPS = [0, 2, 1, 4, 3, 5, 7, 6, 8, 9, 7, 5, 4, 2, 3, 1];
+
+/** One fixed-seed noise source for every burst and the wind loop. */
+const noiseRandom = createRandom(0xc0ffee);
 
 export function createAudio() {
   let context = null;
@@ -38,7 +44,7 @@ export function createAudio() {
     const length = context.sampleRate * 2;
     const buffer = context.createBuffer(1, length, context.sampleRate);
     const data = buffer.getChannelData(0);
-    for (let i = 0; i < length; i += 1) data[i] = Math.random() * 2 - 1;
+    for (let i = 0; i < length; i += 1) data[i] = noiseRandom() * 2 - 1;
     const source = context.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
@@ -72,7 +78,7 @@ export function createAudio() {
     const length = Math.ceil(context.sampleRate * duration);
     const buffer = context.createBuffer(1, length, context.sampleRate);
     const data = buffer.getChannelData(0);
-    for (let i = 0; i < length; i += 1) data[i] = (Math.random() * 2 - 1) * (1 - i / length);
+    for (let i = 0; i < length; i += 1) data[i] = (noiseRandom() * 2 - 1) * (1 - i / length);
     const source = context.createBufferSource();
     source.buffer = buffer;
     const filter = context.createBiquadFilter();
@@ -147,6 +153,22 @@ export function createAudio() {
       noiseBurst({ at, duration: 0.4, volume: 0.06, fromFrequency: 2400, toFrequency: 700 });
     },
 
+    /** A sharper, higher cry, twice over: a diver is dropping on the flock. */
+    diveScreech() {
+      if (!ensure()) return;
+      const at = context.currentTime;
+      tone({ frequency: 1900, endFrequency: 700, type: 'sawtooth', at, duration: 0.42, volume: 0.1 });
+      tone({ frequency: 2100, endFrequency: 800, type: 'sawtooth', at: at + 0.22, duration: 0.4, volume: 0.09 });
+      noiseBurst({ at, duration: 0.35, volume: 0.05, fromFrequency: 3000, toFrequency: 900 });
+    },
+
+    /** A rising rush of air: the boost kicks in. */
+    boostWhoosh() {
+      if (!ensure()) return;
+      const at = context.currentTime;
+      noiseBurst({ at, duration: 0.55, volume: 0.12, fromFrequency: 400, toFrequency: 2600 });
+    },
+
     /** A soft rush of air: a gust tears through the flock. */
     whoosh() {
       if (!ensure()) return;
@@ -154,13 +176,15 @@ export function createAudio() {
       noiseBurst({ at, duration: 0.8, volume: 0.14, fromFrequency: 500, toFrequency: 1800 });
     },
 
-    /** A rising pentatonic run: home at last. */
+    /** A rising pentatonic run over a low root, with a bell on top: home at last. */
     win() {
       if (!ensure()) return;
       const at = context.currentTime;
+      tone({ frequency: 261.63, type: 'sine', at, duration: 2.2, volume: 0.1 });
       [523.25, 587.33, 659.25, 783.99, 1046.5].forEach((frequency, index) => {
         tone({ frequency, type: 'triangle', at: at + index * 0.14, duration: 0.7, volume: 0.13 });
       });
+      tone({ frequency: 1567.98, type: 'sine', at: at + 0.7, duration: 1.6, volume: 0.07 });
     },
 
     /** A low thud: the flock is broken. */
